@@ -1,0 +1,196 @@
+
+# docker-compose.yml
+# All - in - One
+networks:
+  kafka-net:
+    driver: bridge
+
+services:
+
+  # 1. Zookeeper 서비스
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0 # 가지고 계신 주키퍼 이미지 이름으로 변경 가능
+    container_name: zookeeper
+    hostname: zookeeper
+    networks:
+      - kafka-net
+    ports:
+      - "2181:2181" # 주키퍼 기본 포트
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # 2. Kafka 서비스
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0 # 가지고 계신 카프카 이미지 이름으로 변경 가능
+    container_name: kafka
+    hostname: kafka
+    networks:
+      - kafka-net
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    depends_on:
+      - zookeeper # Zookeeper가 실행된 후에 Kafka가 시작되도록 의존성 설정
+    environment:
+      KAFKA_KRAFT_MODE: false
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181' # docker-compose 네트워크 내에서 zookeeper 서비스 이름으로 접근
+      # 내부 리스너 설정 (컨테이너 간 통신)
+      # 외부 리스너 설정 (호스트 머신에서 접근)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://192.168.1.205:29092,PLAINTEXT_HOST://192.168.1.205:29092
+      #KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://192.168.1.205:29092 # kafka:9092(내부용) , localhost:29092(외부용)
+      # 단일 노드 클러스터 설정 (운영 환경에서는 Replication Factor를 1보다 크게 설정해야 함)
+      #KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://192.168.1.205:29092 # kafka:9092(내부용) , localhost:29092(외부용)
+      # 단일 노드 클러스터 설정 (운영 환경에서는 Replication Factor를 1보다 크게 설정해야 함)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      # (선택) JMX 포트 (모니터링 등에 사용)
+      # KAFKA_JMX_PORT: 9999
+      # KAFKA_JMX_HOSTNAME: localhost
+      # --- 최대 메시지 크기 설정 ---
+      KAFKA_MESSAGE_MAX_BYTES: '10485760' # 10MB
+      KAFKA_REPLICA_FETCH_MAX_BYTES: '10485760' # 10MB (message.max.bytes 이상이어야 함)
+      KAFKA_FETCH_MESSAGE_MAX_BYTES: '10485760' # 10MB (컨슈머 측 제한도 함께 조정)
+      # ---------------------------
+
+  # 3. Kafka UI 서비스 (Provectus Kafka UI 기준)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest # 가지고 계신 UI 이미지 이름으로 변경 가능
+    container_name: kafka-ui
+    networks:
+      - kafka-net
+    ports:
+      - "8080:8080" # Kafka UI 웹 인터페이스 포트
+    depends_on:
+      - kafka # Kafka가 실행된 후에 UI가 시작되도록 의존성 설정
+      - zookeeper
+    environment:
+      # Kafka 클러스터 설정 (UI 내에서 식별할 이름 및 접속 정보)
+      KAFKA_CLUSTERS_0_NAME: local-kafka-cluster # UI에 표시될 클러스터 이름
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092 # UI 컨테이너가 Kafka 컨테이너에 접속할 주소 (내부 리스너 사용)
+      # (선택) 주키퍼 연결 정보 (일부 기능에 필요할 수 있음)
+      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      # (선택) 동적 설정을 UI에서 가능하게 할지 여부
+      # DYNAMIC_CONFIG_ENABLED: "true"
+
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0 # 요청한 버전 사용
+    container_name: elasticsearch
+    hostname: elasticsearch
+    networks:
+      - kafka-net
+    ports:
+      - "9200:9200" # Elasticsearch HTTP 포트
+      - "9300:9300" # Elasticsearch Transport 포트 (노드 간 통신용)
+    environment:
+      - discovery.type=single-node # 단일 노드 클러스터로 실행 (개발/테스트용)
+      - ELASTIC_PASSWORD=1234      # 'elastic' 사용자의 비밀번호 설정
+      
+      
+      # !!!! 중요 !!!!
+      # 개발/테스트 편의를 위해 보안 기능 비활성화.
+      # 운영 환경에서는 반드시 'true'로 설정하고 보안 설정을 완료해야 합니다.
+      - xpack.security.enabled=false
+      
+      #- xpack.security.transport.ssl.enabled=true
+      #- xpack.security.transport.ssl.verification_mode=full
+      #- xpack.security.transport.ssl.keystore.path=/usr/share/elasticsearch/config/certs/elasticsearch-http.p12
+      #- xpack.security.transport.ssl.truststore.path=/usr/share/elasticsearch/config/certs/ca.crt
+      
+      #- xpack.security.http.ssl.enabled=true
+      #- xpack.security.http.ssl.keystore.path=/usr/share/elasticsearch/config/certs/elasticsearch-http.p12
+      #- xpack.security.http.ssl.truststore.path=/usr/share/elasticsearch/config/certs/ca.crt
+      
+      
+      
+      # JVM 힙 메모리 설정 (최소/최대 동일하게 설정 권장)
+      # 로컬 환경에 따라 조절 (예: 512m, 1g, 2g)
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits: # 시스템 리소스 제한 설정 (메모리 잠금 및 파일 핸들 수)
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data # 데이터 영속성을 위한 볼륨
+    healthcheck: # 컨테이너 상태 확인 (선택 사항)
+        test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+        interval: 8s
+        timeout: 30s
+        retries: 4
+        start_period: 60s  # 컨테이너 시작 후 60초 동안은 실패해도 무시
+
+  # 5. Logstash 서비스 (수정)
+  logstash:
+    # Elasticsearch와 버전을 맞추는 것이 좋습니다.
+    image: docker.elastic.co/logstash/logstash:9.2.0 # 버전 변경
+    container_name: logstash
+    hostname: logstash
+    networks:
+      - kafka-net
+
+    ports: # Logstash 자체 포트 (예: Beats 입력) 필요시 주석 해제
+        - "9600:9600" # Logstash API 포트 노출 
+        - "5044:5044"
+    volumes:
+      # Logstash 설정 파일을 컨테이너 내부 pipeline 경로에 마운트
+      - ./logstash-config:/usr/share/logstash/pipeline:ro 
+      # Logstash 데이터/로그 볼륨 (선택 사항)
+      # - logstash_data:/usr/share/logstash/data
+    depends_on:
+      kafka: # Kafka 의존성
+        condition: service_started
+      elasticsearch: # Elasticsearch 의존성 추가
+        condition: service_healthy # Elasticsearch의 healthcheck가 성공할 때까지 대기
+    environment:
+      LS_JAVA_OPTS: "-Xmx512m -Xms512m" # Logstash JVM 메모리 설정 (선택 사항)
+      config_reload_automatic: true # conf 파일이 변하면 자동으로 반영하는 것. (겁나 중요 )
+      HTTP_HOST: "0.0.0.0" # restapi(9600포트) 외부로 내보낼 때 ( 겁나 중요 )
+      xpack_security_enabled: false
+      TZ: "Asia/Seoul"
+
+ # 6. Kibana 서비스 (신규 추가)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.2.0 # Elasticsearch와 동일 버전 사용!
+    container_name: kibana
+    hostname: kibana
+    networks:
+      - kafka-net
+    ports:
+      - "5601:5601" # Kibana 기본 웹 포트
+    environment:
+      # Kibana가 연결할 Elasticsearch 노드 주소 설정
+      # Docker 네트워크 내부의 Elasticsearch 서비스 이름 사용
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      # === Kibana가 Elasticsearch에 연결할 때 사용할 인증 정보 추가 ===
+      # ELASTICSEARCH_USERNAME: kibana_system # 기본 수퍼유저 ID
+      # ELASTICSEARCH_PASSWORD: 1234    # 설정한 비밀번호
+      # ===========================================================
+      ADMIN_PRIVILEGES: "true"
+      server.host: "0.0.0.0"
+      # (선택) Kibana 서버 이름
+      # SERVER_NAME: my-kibana
+      # (선택) Kibana Node.js 메모리 제한 (필요시 조절)
+      # NODE_OPTIONS: "--max-old-space-size=512"
+    volumes:
+      - kibana_data:/usr/share/kibana/data # Kibana 설정/데이터 유지를 위한 볼륨
+    depends_on:
+      elasticsearch: # Elasticsearch 의존성 추가
+        condition: service_healthy # Elasticsearch의 healthcheck가 성공할 때까지 대기
+
+# Docker Named Volumes 정의
+volumes:
+  elasticsearch_data: # Elasticsearch 데이터 볼륨
+    driver: local
+  # logstash_data: # 주석 해제시 사용
+  #   driver: local
+  kibana_data: # Kibana 데이터 볼륨 (신규 추가)
+    driver: local
