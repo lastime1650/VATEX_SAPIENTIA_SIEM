@@ -132,14 +132,14 @@ RAW_EDR_INDEX_TEMPLATE = {
                             }
                         },
                         "apihook": {"properties": {}},
-                        "windows_imageload": {
+                        "imageload": {
                             "properties": {
                                 "imagepath": {"type": "keyword"},
                                 "imagesize": {"type": "long"},
                                 "imagesha256": {"type": "keyword"}
                             }
                         },
-                        "windows_processaccess": {
+                        "processaccess": {
                             "properties": {
                                 "handletype": {"type": "keyword"},
                                 "target_exe_path": {"type": "keyword"},
@@ -147,10 +147,21 @@ RAW_EDR_INDEX_TEMPLATE = {
                                 "desiredaccesses": {"type": "keyword"}
                             }
                         },
-                        "windows_registry": {
+                        "registry": {
                             "properties": {
                                 "keyclass": {"type": "keyword"},
                                 "name": {"type": "keyword"}
+                            }
+                        },
+                        "etw": {
+                            "properties": {
+                                "event_flags": {"type": "integer"},
+                                "event_id": {"type": "integer"},
+                                "event_name": {"type": "keyword"},
+                                "event_version": {"type": "integer"},
+                                "fields": {
+                                    "properties": {}
+                                }
                             }
                         },
                         "rule": {
