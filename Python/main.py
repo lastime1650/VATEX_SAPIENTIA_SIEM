@@ -13,4 +13,4 @@ if __name__ == "__main__":
     print("[테스트] 쿼리 완료.\n")
     
     # API 서버 실행
-    #api_server.run()
+    api_server.run()

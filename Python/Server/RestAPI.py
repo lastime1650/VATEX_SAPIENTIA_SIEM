@@ -1,5 +1,6 @@
 # main.py
 
+import json
 import uvicorn
 from fastapi import FastAPI, APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
@@ -26,14 +27,43 @@ class SIEM_API_SERVER:
             raise RuntimeError(f"SIEM Core를 시작할 수 없습니다: {e}")
 
     def _add_routes(self):
-        """API 엔드포인트를 라우터에 추가합니다."""
-        self.router.post(
-            "/api/solution/siem/push/event/security-threat",
-            tags=["SIEM Events"],
-            summary="보안 위협 이벤트 전송",
-            response_model=Dict[str, Any]
-        )(self.push_event_security_threat)
+        """API 라우터에 추가합니다."""
+        self.router.post("/api/solution/siem/push/event/security-threat",)(self.push_event_security_threat)
 
+    
+    # 보안 이벤트 저장
+    async def push_event_security_threat(self, event_doc: Dict[str, Any] = Body(...)):
+        """
+        /api/solution/siem/push/event/security-threat 엔드포인트 핸들러
+        클라이언트로부터 받은 보안 위협 이벤트를 Elasticsearch에 저장합니다.
+        """
+        try:
+            # 여기에 수신된 event_doc에 대한 유효성 검사 로직 추가 가능
+            # 예: 필수 필드(platform, timestamp_nano 등) 존재 여부 확인
+            
+            Event = self._output_jsonData(event_doc)
+            
+            success = self.siem_core.push_security_threat_event( Event )
+            if success:
+                return self._create_success_response({"message": "Event successfully indexed."})
+            else:
+                return self._create_fail_response("Failed to index event into Elasticsearch.", status_code=500)
+        except Exception as e:
+            return self._create_fail_response(f"An unexpected error occurred: {str(e)}", status_code=500)
+    
+    
+    
+    # Util for APIServer
+    def _output_jsonData(self, jsonData:any)->dict:
+        if isinstance(jsonData, dict):
+            return jsonData
+        elif isinstance(jsonData, str):
+            return json.loads(jsonData)
+        elif isinstance(jsonData, bytes):
+            return json.loads(jsonData)
+        else:
+            raise "Unknown Data Type!"
+        
     def _create_success_response(self, output_data: Any) -> JSONResponse:
         """성공 응답 JSON을 생성합니다."""
         content = {
@@ -49,24 +79,7 @@ class SIEM_API_SERVER:
             "fail_reason": reason
         }
         return JSONResponse(content=content, status_code=status_code)
-
-    async def push_event_security_threat(self, event_doc: Dict[str, Any] = Body(...)):
-        """
-        /api/solution/siem/push/event/security-threat 엔드포인트 핸들러
-        클라이언트로부터 받은 보안 위협 이벤트를 Elasticsearch에 저장합니다.
-        """
-        try:
-            # 여기에 수신된 event_doc에 대한 유효성 검사 로직 추가 가능
-            # 예: 필수 필드(platform, timestamp_nano 등) 존재 여부 확인
-            
-            success = self.siem_core.push_security_threat_event(event_doc)
-            if success:
-                return self._create_success_response({"message": "Event successfully indexed."})
-            else:
-                return self._create_fail_response("Failed to index event into Elasticsearch.", status_code=500)
-        except Exception as e:
-            return self._create_fail_response(f"An unexpected error occurred: {str(e)}", status_code=500)
-
+    
     def run(self):
         """FastAPI 서버를 실행합니다."""
         print(f"SIEM CORE API 서버를 시작합니다... http://{self.server_ip}:{self.server_port}")
