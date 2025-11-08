@@ -1,7 +1,7 @@
 # siem_core.py
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from elasticsearch import Elasticsearch, NotFoundError
 from typing import List, Dict, Any
 
@@ -14,6 +14,24 @@ from Server.Core.ElasticSearch.es_templates import (
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def nano_to_iso_string(nanoseconds: int) -> str:
+    """
+    19자리 나노초 정수를 ISO 8601 UTC 문자열로 변환합니다.
+    예: 1730105630112233500 -> "2024-10-28T09:33:50.112233500Z"
+    """
+    # 초(seconds)와 나노초(nanoseconds part)로 분리
+    seconds = nanoseconds // 1_000_000_000
+    nanos_part = nanoseconds % 1_000_000_000
+    
+    # UTC 기준으로 datetime 객체 생성
+    dt_object = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    
+    # YYYY-MM-DDTHH:MM:SS 형식으로 포맷팅
+    base_format = dt_object.strftime('%Y-%m-%dT%H:%M:%S')
+    
+    # 나노초 부분을 9자리로 맞춰서 결합하고 Z를 붙여 UTC임을 명시
+    return f"{base_format}.{nanos_part:09d}Z"
 
 class SIEM_CORE:
     def __init__(self, host: str = "localhost", port: int = 9200):
@@ -58,47 +76,141 @@ class SIEM_CORE:
         """
         return f"{prefix}-{datetime.utcnow().strftime('%Y-%m-%d')}"
 
-    def push_security_threat_event(self, event_doc: Dict[str, Any]) -> bool:
-        """
-        security-threat 이벤트를 Elasticsearch에 추가합니다.
-        """
+    def _push_event(self, index_name_prefix:str, event_doc: Dict[str, Any]) -> bool:
+        '''
+         args: index_name_prefix
+            -> e.g. "security-threat", "raw-edr"
+        '''
+    
         try:
-            index_name = self._make_index_name_by_date("security-threat")
+            index_name = self._make_index_name_by_date(index_name_prefix)
             response = self.es_client.index(index=index_name, document=event_doc)
             return response.get('result') in ['created', 'updated']
         except Exception as e:
             logging.error(f"security-threat 이벤트 추가 실패: {e}")
             return False
 
-    def _siem_query_raw_index_range_timestamp(self, index_pattern: str, start_timestamp: int, end_timestamp: int) -> Dict[str, List[Dict]]:
+    def push_security_threat_event(self, event_doc: Dict[str, Any]) -> bool:
+        """
+        security-threat 이벤트를 Elasticsearch에 추가.
+        """
+        return self._push_event("security-threat", event_doc)
+    def push_raw_edr_event(self, event_doc: Dict[str, Any]) -> bool:
+        """
+            raw-edr 이벤트를 Elasticsearch에 추가.
+        """
+        return self._push_event("raw-edr", event_doc)
+    def push_raw_ndr_event(self, event_doc: Dict[str, Any]) -> bool:
+        """
+            raw-ndr 이벤트를 Elasticsearch에 추가.
+        """
+        return self._push_event("raw-ndr", event_doc)
+    
+
+    def _siem_query_simple_index_range_timestamp(self, index_pattern: str, start_timestamp_nano_iso: str, end_timestamp_nano_iso: str, size: int = 1000) -> Dict[str, Any]:
+        """
+        최상위 레벨에 타임스탬프 필드가 있는 단순 구조의 인덱스를 쿼리하는 헬퍼 함수.
+        (e.g., security-threat)
+        """
+        query_body = {
+            "query": {
+                "range": {
+                    "timestamp_nano_iso8601": {  # <--- 'events.' 접두사가 없음
+                        "gte": start_timestamp_nano_iso,
+                        "lte": None if len( end_timestamp_nano_iso ) == 0 else end_timestamp_nano_iso
+                    }
+                }
+            },
+            "sort": [
+                {"timestamp_nano": {"order": "asc"}} # <--- nested 컨텍스트가 필요 없음
+            ]
+        }
+        import json 
+        print(
+            json.dumps( query_body )
+        )
+        
+        try:
+            response_dict = self.es_client.search(
+                index=index_pattern,
+                body=query_body,
+                size=size
+            ).body
+            print(response_dict)
+            total_hits = response_dict['hits']['total']['value']
+            logs = [hit['_source'] for hit in response_dict['hits']['hits']]
+            
+            return {"total": total_hits, "logs": logs}
+            
+        except NotFoundError:
+            logging.warning(f"인덱스 패턴 '{index_pattern}'을(를) 찾을 수 없습니다.")
+            return {"total": 0, "logs": []}
+        except Exception as e:
+            logging.error(f"'{index_pattern}' 쿼리 실패: {e}")
+            return {"total": 0, "logs": [], "error": str(e)}
+        
+        
+    def _siem_query_raw_index_range_timestamp(self, index_pattern: str, start_timestamp_nano_iso: str, end_timestamp_nano_iso: str, size: int = 1000) -> Dict[str, List[Dict]]:
         """
         raw 계열 인덱스에서 타임스탬프 범위로 쿼리하는 내부 헬퍼 함수
         """
         query_body = {
             "query": {
-                "range": {
-                    "events.timestamp_nano": {
-                        "gte": start_timestamp,
-                        "lte": end_timestamp
-                    }
+                "nested": {
+                    "path": "events",  # <--- [수정] nested 경로 지정
+                    "query": {
+                        "range": {
+                            "events.timestamp_nano_iso8601": {
+                                "gte": start_timestamp_nano_iso,
+                                "lte": None if len( end_timestamp_nano_iso ) == 0 else end_timestamp_nano_iso
+                            }
+                        }
+                    },
+                    "inner_hits": {}  # <--- [핵심] inner_hits 추가 ( nested )포함시
                 }
             },
             "sort": [
-                {"events.timestamp_nano": {"order": "asc"}}
+                {
+                    "events.timestamp_nano": {
+                        "order": "asc",
+                        "nested": {
+                            "path": "events"  # <--- [수정] 정렬을 위한 nested 경로 지정
+                        }
+                    }
+                }
             ]
         }
-
+        print(query_body)
         try:
             response = self.es_client.search(
                 index=index_pattern,
                 body=query_body, # 전체 쿼리 본문을 'body' 파라미터로 전달
-                size=1000
+                size=size
             )
-            
+            print(response)
             output = {"logs": []}
             for hit in response['hits']['hits']:
-                if '_source' in hit:
-                    output["logs"].append(hit['_source'])
+                if "inner_hits" in hit:
+                    '''
+                        {'events': 
+                            {'hits': 
+                                {'total': {'value': 2, 'relation': 'eq'}, 
+                                'max_score': 1.0, 
+                                'hits': [
+                                    {
+                                        '_index': 'raw-edr-2025-11-08', 
+                                        '_id': '01D3Y5oBJTok5V5KgBku', 
+                                        '_nested': {'field': 'events', 'offset': 3}, 
+                                        '_score': 1.0, 
+                                        '_source': ...
+                    '''
+                    hits = hit["inner_hits"]["events"]["hits"]["hits"]
+                    for hit_ in hits:
+                        if '_source' in hit:
+                            output["logs"].append(hit_['_source'])
+
+                #print(hit['inner_hits'])
+                
             return output
             
         except NotFoundError:
@@ -109,14 +221,20 @@ class SIEM_CORE:
             return {"logs": []}
 
 
-    def query_timestamp_raw_ndr_with_range(self, start_timestamp: int, end_timestamp: int) -> Dict[str, List[Dict]]:
+    def query_timestamp_raw_ndr_with_range(self, start_timestamp: int, end_timestamp: int, size: int = 1000) -> Dict[str, List[Dict]]:
         """
         raw-ndr 인덱스에서 지정된 시간 범위의 문서를 쿼리합니다.
         """
-        return self._siem_query_raw_index_range_timestamp("raw-ndr-*", start_timestamp, end_timestamp)
+        return self._siem_query_raw_index_range_timestamp("raw-ndr-*", nano_to_iso_string(start_timestamp), nano_to_iso_string(end_timestamp), size)
 
-    def query_timestamp_raw_edr_with_range(self, start_timestamp: int, end_timestamp: int) -> Dict[str, List[Dict]]:
+    def query_timestamp_raw_edr_with_range(self, start_timestamp: int, end_timestamp: int, size: int = 1000) -> Dict[str, List[Dict]]:
         """
         raw-edr 인덱스에서 지정된 시간 범위의 문서를 쿼리합니다.
         """
-        return self._siem_query_raw_index_range_timestamp("raw-edr-*", start_timestamp, end_timestamp)
+        return self._siem_query_raw_index_range_timestamp("raw-edr-*", nano_to_iso_string(start_timestamp), nano_to_iso_string(end_timestamp), size)
+    
+    def query_timestamp_security_threat_with_range(self, start_timestamp: int, end_timestamp: int, size: int = 1000) -> Dict[str, List[Dict]]:
+        """
+        raw-edr 인덱스에서 지정된 시간 범위의 문서를 쿼리합니다.
+        """
+        return self._siem_query_simple_index_range_timestamp("security-threat-*", nano_to_iso_string(start_timestamp), nano_to_iso_string(end_timestamp), size)

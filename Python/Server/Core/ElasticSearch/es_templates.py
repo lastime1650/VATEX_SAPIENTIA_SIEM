@@ -27,8 +27,9 @@ RAW_NDR_INDEX_TEMPLATE = {
                 "session_last_seen_nano": {"type": "long"},
                 "event_count": {"type": "long"},
                 "events": {
-                    "type": "object", # C++의 object 배열은 'nested' 타입으로 매핑하는 것이 쿼리 성능에 유리합니다.
+                    "type": "nested", # 
                     "properties": {
+                        "timestamp_nano_iso8601": {"type": "date_nanos"},
                         "timestamp_nano": {"type": "long"},
                         "src_ip": {"type": "ip"},
                         "src_port": {"type": "integer"},
@@ -80,8 +81,9 @@ RAW_EDR_INDEX_TEMPLATE = {
                 "os_version": {"type": "keyword"},
                 "event_count": {"type": "long"},
                 "events": {
-                    "type": "object",
+                    "type": "nested",
                     "properties": {
+                        "timestamp_nano_iso8601": {"type": "date_nanos"},
                         "timestamp_nano": {"type": "long"},
                         "self_session_id": {"type": "keyword"},
                         "parent_session_id": {"type": "keyword"},
@@ -192,6 +194,7 @@ SECURITY_THREAT_INDEX_TEMPLATE = {
         },
         "mappings": {
             "properties": {
+                "timestamp_nano_iso8601": {"type": "date_nanos"},
                 "platform": {"type": "keyword"},
                 "timestamp_nano": {"type": "long"},
                 "event_id": {"type": "keyword"},
