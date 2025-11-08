@@ -24,6 +24,16 @@ namespace SIEM
                             }},
                             {"mappings", {
                                 {"properties", {
+                                    // IAM
+                                    { "IAM", {
+                                        {"properties", {
+                                            { "ticket" , { { "type", "keyword" } } },
+                                            { "username" , { { "type", "keyword" } } }, // 해당 트래픽과 연관된 유저명
+                                            {"ipv4", {{"type", "ip"}}},              // 해당 트래픽에 포함된 유저의 IPV4
+                                            {"agent_id", {{"type", "keyword"}}}         // 해당 트래픽에 포함된 유저의 에이전트ID
+                                        } }
+                                    } },
+                                    
                                     {"sensor_id", { {"type", "keyword"} }},
                                     {"flow_session_id", { {"type", "keyword"} }},
                                     {"session_first_seen_nano", { {"type", "long"} }},
@@ -34,14 +44,6 @@ namespace SIEM
                                         {"properties", {
                                             // 공통
                                             { "timestamp_nano", { { "type", "long" } } },
-
-                                            // User정보 by IAM
-                                            { "IAM", {
-                                                {"properties", {
-                                                    { "user" , { { "type", "keyword" } } }, // 해당 트래픽과 연관된 유저명
-                                                    {"ipv4", {{"type", "ip"}}}              // 해당 트래픽에 포함된 유저의 IPV4
-                                                } }
-                                            } },
 
                                             // < 기본 패킷 메타데이터 >
                                             { "src_ip", { { "type", "ip" } } },
@@ -81,6 +83,16 @@ namespace SIEM
                             }},
                             {"mappings", {
                                 {"properties", {
+                                    // IAM
+                                    { "IAM", {
+                                        {"properties", {
+                                            { "ticket" , { { "type", "keyword" } } },
+                                            { "username" , { { "type", "keyword" } } }, // 해당 트래픽과 연관된 유저명
+                                            {"ipv4", {{"type", "ip"}}},              // 해당 트래픽에 포함된 유저의 IPV4
+                                            {"agent_id", {{"type", "keyword"}}}         // 해당 트래픽에 포함된 유저의 에이전트ID
+                                        } }
+                                    } },
+
                                     {"agent_id", { {"type", "keyword"} }},
                                     {"os_platform", { {"type", "keyword"} }},
                                     {"os_version", { {"type", "keyword"} }},
@@ -94,15 +106,6 @@ namespace SIEM
                                             { "parent_session_id", { { "type", "keyword" } } },
                                             { "root_session_id", { { "type", "keyword" } } },
                                             { "pid", { { "type", "long" } } },
-
-                                            // User정보 by IAM
-                                            { "IAM", {
-                                                {"properties", {
-                                                    { "user" , { { "type", "keyword" } } }, // 해당 트래픽과 연관된 유저명
-                                                    {"ipv4", {{"type", "ip"}}},              // 해당 트래픽에 포함된 유저의 IPV4
-                                                    {"agent_id", {{"type", "keyword"}}}         // 해당 트래픽에 포함된 유저의 에이전트ID
-                                                } }
-                                            } },
 
                                             // < 프로세스 생성 이벤트 >
                                             { "processcreation", {
@@ -164,7 +167,7 @@ namespace SIEM
                                             }},
 
                                             // < Windows 이미지 로드 이벤트 >
-                                            { "windows_imageload", {
+                                            { "imageload", {
                                                 { "properties", {
                                                     { "imagepath", { { "type", "keyword" } } },
                                                     { "imagesize", { { "type", "long" } } },
@@ -173,7 +176,7 @@ namespace SIEM
                                             }},
 
                                             // < Windows 프로세스 접근 이벤트 >
-                                            { "windows_processaccess", {
+                                            { "processaccess", {
                                                 { "properties", {
                                                     { "handletype", { { "type", "keyword" } } },
                                                     { "target_exe_path", { { "type", "keyword" } } },
@@ -183,11 +186,16 @@ namespace SIEM
                                             }},
 
                                             // < Windows 레지스트리 이벤트 >
-                                            { "windows_registry", {
+                                            { "registry", {
                                                 { "properties", {
                                                     { "keyclass", { { "type", "keyword" } } },
                                                     { "name", { { "type", "keyword" } } }
                                                 }}
+                                            }},
+
+                                            // < Windows ETW 이벤트 >
+                                            { "etw", {
+                                                { "properties", {}}
                                             }},
 
                                             // < 규칙기반 정보 >

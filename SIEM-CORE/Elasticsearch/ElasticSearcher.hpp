@@ -112,10 +112,16 @@ namespace SIEM
                         }
                     }
 
-                    bool AddDocument(const std::string& indexName, const std::string& id, const std::string& doc)
+                    bool AddDocument(const std::string& indexName, const std::string& doc)
                     {
-                        auto path = "/" + indexName + "-" + MakeIndexNameByDate() + "/_doc/" + id;
+                        auto path = "/" + indexName + "-" + MakeIndexNameByDate() + "/_doc";
                         auto res = client.Put(path.c_str(), doc, "application/json");
+                        return res && (res->status == 200 || res->status == 201);
+                    }
+                    bool AddDocument(const std::string& indexName, const json& doc)
+                    {
+                        auto path = "/" + indexName + "-" + MakeIndexNameByDate() + "/_doc";
+                        auto res = client.Put(path.c_str(), doc.dump(), "application/json");
                         return res && (res->status == 200 || res->status == 201);
                     }
                     bool QueryDocument(const std::string& indexpattern, const std::string& query_body,  ElasticSearch_Query_Output& output)
@@ -133,7 +139,7 @@ namespace SIEM
                                     << " | Body: " << res->body << std::endl;
                             return false;
                         }
-                        
+
                         return PostIndexQuery_to_Sturct(res->body, output);
                     }
                     bool QueryDocument(const std::string& indexpattern, const json& query_body, ElasticSearch_Query_Output& output)

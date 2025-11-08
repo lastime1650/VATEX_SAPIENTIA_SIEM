@@ -1,5 +1,27 @@
 #include "SIEM-CORE/SIEM_CORE_Server.hpp"
 
+bool set_fail_response(std::string reason, httplib::Response& res)
+{
+    json body = {
+        {"status", false},
+        {"fail_reason", reason}
+    };
+
+    res.set_content(body.dump(), "application/json");
+
+    return true;
+}
+bool set_success_response(json output, httplib::Response& res)
+{
+    json body = {
+        {"status", true},
+        {"output", output}
+    };
+
+    res.set_content(body.dump(), "application/json");
+
+    return true;
+}
 
 int main()
 {
@@ -250,18 +272,30 @@ int main()
                 }  
     */
     SIEM::Server::SIEM_CORE siem;
-    std::cout << siem.Query__Timestamp__raw_ndr_with_Range(1730100310000000000, 1730111500000000000).dump();
-    /*
-        Initialize 진행
-    */
-    // Initialize-1-A raw-ndr
-    //SIEM::Server::Elasticsearch::Global::Index_Templates::raw_ndr_index_template.dump();
-    //std::cout << siem.ES.IndexExists("raw-ndr-index-template");
-    //std::cout << siem.ES.CreateIndex("raw-ndr-index-template", SIEM::Server::Elasticsearch::Global::Index_Templates::raw_ndr_index_template);
-    // Initialize-1-B raw-edr
-    // Initialize-1-C raw-xdr
+    std::cout << siem.Query__Timestamp__raw_edr_with_Range(1730102000000000000, 1730104015000000000).dump();
+
     // Initialize-2-A security-threat
+
+    /*
+        RestAPI 기능으로 Opening
+    */
+
+    httplib::Server APIsvr;
+    std::string APIsvr_IP = "0.0.0.0";
+    unsigned long APIsvr_PORT = 10900;
     
+    // 보안 이벤트 다큐멘트 전송
+     APIsvr.Post(
+        "/api/solution/siem/push/event/security-threat",
+        [&siem](const httplib::Request& req, httplib::Response& res)
+        {}
+     );
+
+    // RestAPI - Server실행 
+    APIsvr.listen(
+        APIsvr_IP,
+        APIsvr_PORT
+    );
 
     return 0;
 }

@@ -79,7 +79,7 @@ namespace SIEM
                             "_score":null,
                             
                             "_source":{
-                                "event_count":3,
+                                "event_count":1,
                                 "events":{
                                     "direction":"out","dst_ip":"10.0.0.12","dst_port":3306,"interfacename":"eth1","protocol":"TCP","rule":{"description":"MySQL connection","id":"R010","severity":"medium","stage_action":"allow","stage_action_message":"Database access","stage_index_name":"DB","stage_node_location_index":10},"src_ip":"10.1.0.1","src_port":3306,"timestamp_nano":1730102720000000000},"flow_session_id":"flow-jjj","sensor_id":"sensor-010","session_first_seen_nano":1730102700000000000,"session_last_seen_nano":1730103000000000000
                                 },
