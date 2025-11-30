@@ -23,8 +23,16 @@ RAW_NDR_INDEX_TEMPLATE = {
                 },
                 "sensor_id": {"type": "keyword"},
                 "flow_session_id": {"type": "keyword"},
-                "session_first_seen_nano": {"type": "long"},
-                "session_last_seen_nano": {"type": "long"},
+                
+                "timestamp": {
+                    "properties": {
+                        "first_seen": {"type":"long"},
+                        "last_seen": {"type":"long"},
+                        "first_seen_iso8601": {"type":"date_nanos"},
+                        "last_seen_iso8601": {"type":"date_nanos"}
+                    }
+                },
+                
                 "event_count": {"type": "long"},
                 "events": {
                     "type": "nested", # 
@@ -58,7 +66,7 @@ RAW_NDR_INDEX_TEMPLATE = {
 
 # raw-edr 인덱스 템플릿
 RAW_EDR_INDEX_TEMPLATE_NAME = "raw-edr-index-template"
-RAW_EDR_INDEX_TEMPLATE = {
+"""RAW_EDR_INDEX_TEMPLATE = {
     "index_patterns": ["raw-edr-*"],
     "priority": 500,
     "template": {
@@ -191,7 +199,203 @@ RAW_EDR_INDEX_TEMPLATE = {
             }
         }
     }
+}"""
+RAW_EDR_INDEX_TEMPLATE = {
+    "index_patterns": ["raw-edr-*"],
+    "priority": 500,
+    "template": {
+        "settings": {
+            "number_of_shards": 4,
+            "number_of_replicas": 1
+        },
+        "mappings": {
+            "properties": {
+                "IAM": {
+                    "properties": {
+                        "ticket": {"type": "keyword"},
+                        "username": {"type": "keyword"},
+                        "ipv4": {"type": "ip"},
+                        "agent_id": {"type": "keyword"}
+                    }
+                },
+                "agent_id": {"type": "keyword"},
+                "os_platform": {"type": "keyword"},
+                "os_version": {"type": "keyword"},
+
+                "root_process_sha256": { "type": "keyword" },
+                "is_alive": { "type": "boolean" },
+                "is_placeholder": { "type": "boolean" },
+                "nodeMaxDepth": { "type": "long" },
+                "child_count": { "type": "long" },
+                "event_count": {"type": "long"},
+                "session": {
+                  "properties": {
+                    "SessionID": { "type": "keyword" },
+                    "Root_SessionID": { "type": "keyword" },
+                    "Parent_SessionID": { "type": "keyword" }
+                  }
+                },
+                "shared_tree_timestamp": {
+                  "properties": {
+                    "first_seen": { "type": "long" },
+                    "last_seen": { "type": "long" }
+                  }
+                },
+                "rules": {
+                    "type": "nested",
+                    "properties": {
+                        "id": {"type": "keyword"},
+                        "name": {"type": "text"},
+                        "description": {"type": "text"},
+                        "severity": {"type": "keyword"},
+                        "mitreattacks": {
+                            "type": "nested",
+                            "properties": {
+                                "tactic_id": {"type": "keyword"},
+                                "technique_id": {"type": "keyword"},
+                                "subtechnique_id": {"type": "keyword"},
+                                "data_sources": {"type": "keyword"}
+                            }
+                        },
+                        "platforms": {"type": "keyword"},
+                        "operational_usage": {"type": "text"},
+                        "false_positive": {"type": "text"}
+                    }
+                },
+                "intelligences": {
+                    "type": "object",
+                    "enabled": False
+                },
+                "events": {
+                    "type": "nested",
+                    "properties": {
+                        "header": {
+                            "properties": {
+                                "agentid": { "type": "keyword" },
+                                "sessionid": { "type": "keyword" },
+                                "root_sessionid": { "type": "keyword" },
+                                "parent_sessionid": { "type": "keyword" },
+                                "nano_timestamp": { "type": "long" },
+                                "timestamp_nano_iso8601": {"type": "date_nanos"},
+                                "os": {
+                                    "properties": {
+                                        "type": { "type": "keyword" },
+                                        "version": { "type": "keyword" }
+                                    }
+                                }
+                            }
+                        },
+                        "body": {
+                            "properties": {
+                                "process": {
+                                    "properties": {
+                                        "action": {"type": "keyword"},
+                                        "exe_path": {"type": "keyword"},
+                                        "exe_size": {"type": "long"},
+                                        "exe_sha256": {"type": "keyword"},
+                                        "commandline": {"type": "text"},
+                                        "ppid": {"type": "long"},
+                                        "parent_exe_path": {"type": "keyword"},
+                                        "parent_exe_size": {"type": "long"},
+                                        "parent_exe_sha256": {"type": "keyword"},
+                                        "user": {
+                                            "properties": {
+                                                "username": {"type": "keyword"},
+                                                "sid": {"type": "keyword"}
+                                            }
+                                        }
+                                    }
+                                },
+                                "filesystem": {
+                                    "properties": {
+                                        "action": {"type": "keyword"},
+                                        "filepath": {"type": "keyword"},
+                                        "filesize": {"type": "long"},
+                                        "filesha256": {"type": "keyword"}
+                                    }
+                                },
+                                "network": {
+                                    "properties": {
+                                        "protocol": {"type": "keyword"},
+                                        "packetsize": {"type": "integer"},
+                                        "sourceip": {"type": "ip"},
+                                        "sourceport": {"type": "integer"},
+                                        "destinationip": {"type": "ip"},
+                                        "destinationport": {"type": "integer"},
+                                        "direction": {"type": "keyword"},
+                                        "session": {
+                                            "properties": {
+                                                "sessionid": { "type": "keyword" },
+                                                "first_seen": { "type": "long" },
+                                                "last_seen": { "type": "long" }
+                                            }
+                                        }
+                                    }
+                                },
+                                "imageload": {
+                                    "properties": {
+                                        "filepath": {"type": "keyword"},
+                                        "filesize": {"type": "long"},
+                                        "filesha256": {"type": "keyword"}
+                                    }
+                                },
+                                "processaccess": {
+                                    "properties": {
+                                        "handletype": {"type": "keyword"},
+                                        "filepath": {"type": "keyword"},
+                                        "target_pid": {"type": "long"},
+                                        "desiredaccesses": {"type": "keyword"}
+                                    }
+                                },
+                                "registry": {
+                                    "properties": {
+                                        "keyclass": {"type": "keyword"},
+                                        "name": {"type": "keyword"}
+                                    }
+                                },
+                                "etw": {
+                                    "properties": {
+                                        "event_flags": {"type": "integer"},
+                                        "event_id": {"type": "integer"},
+                                        "event_name": {"type": "keyword"},
+                                        "event_version": {"type": "integer"},
+                                        "fields": {
+                                            "properties": {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
+
+# security-threat 인덱스 템플릿
+RAW_XDR_INDEX_TEMPLATE_NAME = "raw-xdr-index-template"
+RAW_XDR_INDEX_TEMPLATE = {
+    "index_patterns": ["raw-xdr-*"],
+    "priority": 300,
+    "template": {
+        "settings": {
+            "number_of_shards": 4,
+            "number_of_replicas": 1
+        },
+        "mappings": {
+            "properties": {
+                "header": {
+                    "properties": {}
+                },
+                "body": {
+                    "properties": {}
+                }
+            }
+        }
+    }
+}
+                
 
 # security-threat 인덱스 템플릿
 SECURITY_THREAT_INDEX_TEMPLATE_NAME = "security-threat-index-template"
@@ -218,3 +422,4 @@ SECURITY_THREAT_INDEX_TEMPLATE = {
         }
     }
 }
+

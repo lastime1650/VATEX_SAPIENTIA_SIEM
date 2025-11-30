@@ -1,0 +1,1 @@
+{"status":false,"fail_reason":"An unexpected error occurred: 'SIEM_CORE' object has no attribute 'query_timestamp_raw_edr_with_range_on_sessionSeen'"}

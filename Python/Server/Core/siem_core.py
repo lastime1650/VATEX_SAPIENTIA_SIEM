@@ -3,19 +3,23 @@
 import logging
 from datetime import datetime, timezone
 from elasticsearch import Elasticsearch, NotFoundError
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # es_templates.py에서 템플릿 정의 가져오기
 from Server.Core.ElasticSearch.es_templates import (
     RAW_NDR_INDEX_TEMPLATE, RAW_NDR_INDEX_TEMPLATE_NAME,
     RAW_EDR_INDEX_TEMPLATE, RAW_EDR_INDEX_TEMPLATE_NAME,
+    RAW_XDR_INDEX_TEMPLATE_NAME, RAW_XDR_INDEX_TEMPLATE,
     SECURITY_THREAT_INDEX_TEMPLATE, SECURITY_THREAT_INDEX_TEMPLATE_NAME
+    
 )
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def nano_to_iso_string(nanoseconds: int) -> str:
+def nano_to_iso_string(nanoseconds: Optional[int]) -> Optional[str]:
+    if(nanoseconds == None):
+        return None
     """
     19자리 나노초 정수를 ISO 8601 UTC 문자열로 변환합니다.
     예: 1730105630112233500 -> "2024-10-28T09:33:50.112233500Z"
@@ -55,6 +59,7 @@ class SIEM_CORE:
         templates_to_check = {
             RAW_NDR_INDEX_TEMPLATE_NAME: RAW_NDR_INDEX_TEMPLATE,
             RAW_EDR_INDEX_TEMPLATE_NAME: RAW_EDR_INDEX_TEMPLATE,
+            RAW_XDR_INDEX_TEMPLATE_NAME: RAW_XDR_INDEX_TEMPLATE,
             SECURITY_THREAT_INDEX_TEMPLATE_NAME: SECURITY_THREAT_INDEX_TEMPLATE
         }
 
@@ -105,7 +110,17 @@ class SIEM_CORE:
             raw-ndr 이벤트를 Elasticsearch에 추가.
         """
         return self._push_event("raw-ndr", event_doc)
+    def push_raw_xdr_event(self, event_doc: Dict[str, Any]) -> bool:
+        """
+            raw-xdr 이벤트를 Elasticsearch에 추가.
+        """
+        return self._push_event("raw-xdr", event_doc)
     
+    def _siem_query(self, index_pattern:str, query_data:dict) -> dict:
+        return dict( self.es_client.search(
+                index=index_pattern,
+                body=query_data
+            ).body )
 
     def _siem_query_simple_index_range_timestamp(self, index_pattern: str, start_timestamp_nano_iso: str, end_timestamp_nano_iso: str, size: int = 1000) -> Dict[str, Any]:
         """
@@ -136,7 +151,7 @@ class SIEM_CORE:
                 body=query_body,
                 size=size
             ).body
-            print(response_dict)
+            
             total_hits = response_dict['hits']['total']['value']
             logs = [hit['_source'] for hit in response_dict['hits']['hits']]
             
@@ -149,69 +164,143 @@ class SIEM_CORE:
             logging.error(f"'{index_pattern}' 쿼리 실패: {e}")
             return {"total": 0, "logs": [], "error": str(e)}
         
+    def _siem_query_simple_index_searchAfter(self, index_pattern:str, search_after_value:int, size:int = 10)-> Dict[str, List[Dict]]:
+        query_body = {
+            "sort" : [
+                {
+                    "timestamp_nano_iso8601": {
+                        "order": "asc"
+                    }
+                }
+            ],
+            "search_after": [ search_after_value ] 
+        }
+        
+        try:
+            response_dict = self.es_client.search(
+                index=index_pattern,
+                body=query_body, # 전체 쿼리 본문을 'body' 파라미터로 전달
+                size=size
+            )
+            total_hits = response_dict['hits']['total']['value']
+            logs = [ { "source" : hit['_source'], "id": hit["_id"], "sort": hit.get("sort", None) } for hit in response_dict['hits']['hits']]
+            
+            return {"total": total_hits, "logs": logs}
+            
+        except NotFoundError:
+            logging.warning(f"인덱스 패턴 '{index_pattern}'을(를) 찾을 수 없습니다.")
+            return {"logs": []}
+        except Exception as e:
+            logging.error(f"'{index_pattern}' 쿼리 실패: {e}")
+            return {"logs": []}
+        
+    def _siem_query_raw_index_searchAfter(self, index_pattern:str, search_after_value:int, size:int = 1)-> Dict[str, List[Dict]]:
+        query_body = {
+            "sort" : [
+                {
+                    "timestamp.first_seen_iso8601": {
+                        "order": "asc"
+                    }
+                }
+            ],
+            "search_after": [ search_after_value ] 
+        }
+        
+        try:
+            response_dict = self.es_client.search(
+                index=index_pattern,
+                body=query_body, # 전체 쿼리 본문을 'body' 파라미터로 전달
+                size=size
+            )
+            total_hits = response_dict['hits']['total']['value']
+            logs = [ { "source" : hit['_source'], "id": hit["_id"], "sort": hit.get("sort", None) } for hit in response_dict['hits']['hits']]
+            
+            return {"total": total_hits, "logs": logs}
+            
+        except NotFoundError:
+            logging.warning(f"인덱스 패턴 '{index_pattern}'을(를) 찾을 수 없습니다.")
+            return {"logs": []}
+        except Exception as e:
+            logging.error(f"'{index_pattern}' 쿼리 실패: {e}")
+            return {"logs": []}
+        
+        
+    def _siem_query_raw_index_root_session(self, index_pattern: str, root_session_id:str, size: int = 1000) -> Dict[str, List[Dict]]:
+        """
+            raw 계열 인덱스에서 {세션 내} 세션 쿼리하는 내부 헬퍼 함수
+        """
+        query_body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {
+                            "term": {
+                                "header.root_sessionid": root_session_id
+                            }
+                        }
+                    ]
+                }
+            },
+            "sort": [
+                { "header.timestamp_nano_iso8601": "asc" }
+            ]
+            
+        }
+        
+        try:
+            response_dict = self.es_client.search(
+                index=index_pattern,
+                body=query_body, # 전체 쿼리 본문을 'body' 파라미터로 전달
+                size=size
+            )
+            total_hits = response_dict['hits']['total']['value']
+            logs = [hit['_source'] for hit in response_dict['hits']['hits']]
+            
+            return {"total": total_hits, "logs": logs}
+            
+        except NotFoundError:
+            logging.warning(f"인덱스 패턴 '{index_pattern}'을(를) 찾을 수 없습니다.")
+            return {"logs": []}
+        except Exception as e:
+            logging.error(f"'{index_pattern}' 쿼리 실패: {e}")
+            return {"logs": []}
+        
         
     def _siem_query_raw_index_range_timestamp(self, index_pattern: str, start_timestamp_nano_iso: str, end_timestamp_nano_iso: str, size: int = 1000) -> Dict[str, List[Dict]]:
         """
         raw 계열 인덱스에서 타임스탬프 범위로 쿼리하는 내부 헬퍼 함수
         """
+        
         query_body = {
             "query": {
-                "nested": {
-                    "path": "events",  # <--- [수정] nested 경로 지정
-                    "query": {
-                        "range": {
-                            "events.timestamp_nano_iso8601": {
-                                "gte": start_timestamp_nano_iso,
-                                "lte": None if len( end_timestamp_nano_iso ) == 0 else end_timestamp_nano_iso
+                "bool": {
+                    "must": [
+                        {
+                            "range": {
+                                "header.timestamp_nano_iso8601": {
+                                    "gte": start_timestamp_nano_iso,
+                                    "lte":  None if end_timestamp_nano_iso == None or len( end_timestamp_nano_iso ) == 0 else end_timestamp_nano_iso
+                                }
                             }
                         }
-                    },
-                    "inner_hits": {}  # <--- [핵심] inner_hits 추가 ( nested )포함시
+                    ]
                 }
             },
             "sort": [
-                {
-                    "events.timestamp_nano": {
-                        "order": "asc",
-                        "nested": {
-                            "path": "events"  # <--- [수정] 정렬을 위한 nested 경로 지정
-                        }
-                    }
-                }
+                { "header.timestamp_nano_iso8601": "asc" }
             ]
+            
         }
-        print(query_body)
+        
         try:
-            response = self.es_client.search(
+            response_dict = self.es_client.search(
                 index=index_pattern,
                 body=query_body, # 전체 쿼리 본문을 'body' 파라미터로 전달
                 size=size
             )
-            print(response)
-            output = {"logs": []}
-            for hit in response['hits']['hits']:
-                if "inner_hits" in hit:
-                    '''
-                        {'events': 
-                            {'hits': 
-                                {'total': {'value': 2, 'relation': 'eq'}, 
-                                'max_score': 1.0, 
-                                'hits': [
-                                    {
-                                        '_index': 'raw-edr-2025-11-08', 
-                                        '_id': '01D3Y5oBJTok5V5KgBku', 
-                                        '_nested': {'field': 'events', 'offset': 3}, 
-                                        '_score': 1.0, 
-                                        '_source': ...
-                    '''
-                    hits = hit["inner_hits"]["events"]["hits"]["hits"]
-                    for hit_ in hits:
-                        if '_source' in hit:
-                            output["logs"].append(hit_['_source'])
-
-                #print(hit['inner_hits'])
-                
-            return output
+            total_hits = response_dict['hits']['total']['value']
+            logs = [hit['_source'] for hit in response_dict['hits']['hits']]
+            return {"total": total_hits, "logs": logs}
             
         except NotFoundError:
             logging.warning(f"인덱스 패턴 '{index_pattern}'을(를) 찾을 수 없습니다.")
@@ -221,6 +310,30 @@ class SIEM_CORE:
             return {"logs": []}
 
 
+    
+    
+    def query_raw_edr_search_after(self, search_after_value: int, size: int = 1000) -> Dict[str, List[Dict]]:
+        """
+        raw-edr 인덱스에서 지정된 시간 범위의 문서를 쿼리합니다.
+        """
+        return self._siem_query_raw_index_searchAfter("raw-edr-*", search_after_value, size)
+    
+    #############################################################################################################################################################################
+    
+    def query_timestamp_raw_edr_with_root_session(self, root_session_id:str, size: int = 1000) -> Dict[str, List[Dict]]:
+        """
+        raw-edr 인덱스에서 지정된 루트 세션전체 문서를 쿼리합니다.
+        """
+        return self._siem_query_raw_index_root_session("raw-edr-*", root_session_id, size)
+    
+    def query_timestamp_raw_ndr_with_root_session(self, root_session_id:str, size: int = 1000) -> Dict[str, List[Dict]]:
+        """
+        raw-ndr 인덱스에서 지정된 루트 세션전체 문서를 쿼리합니다.
+        """
+        return self._siem_query_raw_index_root_session("raw-ndr-*", root_session_id, size)
+    
+    #############################################################################################################################################################################
+    
     def query_timestamp_raw_ndr_with_range(self, start_timestamp: int, end_timestamp: int, size: int = 1000) -> Dict[str, List[Dict]]:
         """
         raw-ndr 인덱스에서 지정된 시간 범위의 문서를 쿼리합니다.
